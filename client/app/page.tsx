@@ -1,346 +1,264 @@
-'use client';
-import { useState, useEffect } from 'react';
+"use client";
+import React, { useEffect, useState } from "react";
+import { saveAs } from "file-saver";
 
-/**
- * Fantasy Waiver Tool – Predictive Stats + Quality-of-Life Enhancements
- */
+type Player = {
+  id: number;
+  name: string;
+  position: string;
+  team: string;
+  opponent: string;
+  weather?: string;
+  impliedTotal?: number;
+  defRank?: number;
+  games: { week: number; points: number }[];
+  waiverScore?: number;
+};
 
 export default function Home() {
-  const [players, setPlayers] = useState<any[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [week, setWeek] = useState<number>(11);
-  const [sortMode, setSortMode] = useState<'WEEK' | 'ROS'>('WEEK');
+  const [mode, setMode] = useState<"WEEK" | "ROS">("WEEK");
 
-  const [form, setForm] = useState<any>({
-    player_name: '',
-    position: '',
-    team: '',
-    home_team: '',
-    weather: '',
-    implied_total: '',
-    waiver_score_week: '',
-    waiver_score_ros: '',
-    stats: {},
-  });
+  // ✅ Auto weather refresh every Tuesday 9am
+  useEffect(() => {
+    const now = new Date();
+    if (now.getDay() === 2 && now.getHours() >= 9) {
+      updateWeatherAll();
+    }
+  }, []);
 
-  const stadiums: Record<string, { lat: number; lon: number }> = {
-    BUF: { lat: 42.7738, lon: -78.7869 },
-    MIA: { lat: 25.958, lon: -80.2389 },
-    GB: { lat: 44.5013, lon: -88.0622 },
-    DAL: { lat: 32.7473, lon: -97.0945 },
-    KC: { lat: 39.0489, lon: -94.484 },
-    PHI: { lat: 39.9012, lon: -75.1674 },
-    DET: { lat: 42.3389, lon: -83.0458 },
-    LV: { lat: 36.0908, lon: -115.183 },
-    LA: { lat: 33.9535, lon: -118.3393 },
+  const addPlayer = () => {
+    setPlayers([
+      ...players,
+      {
+        id: Date.now(),
+        name: "",
+        position: "",
+        team: "",
+        opponent: "",
+        games: [],
+      },
+    ]);
   };
 
-  /** --- Weather + Implied --- **/
-  const fetchWeather = async (team: string) => {
-    const loc = stadiums[team.toUpperCase()];
-    if (!loc) return setForm((f: any) => ({ ...f, weather: 'N/A' }));
-    try {
-      const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=temperature_2m,wind_speed_10m,precipitation_probability&forecast_days=7`
-      );
-      const data = await res.json();
-      const i = Math.min(84, data.hourly.temperature_2m.length - 1);
-      const temp = data.hourly.temperature_2m[i];
-      const wind = data.hourly.wind_speed_10m[i];
-      const precip = data.hourly.precipitation_probability[i];
-      let score = 10;
-      if (temp < 30 || temp > 90) score -= 2;
-      if (wind > 15) score -= 2;
-      if (precip > 50) score -= 3;
-      setForm((f: any) => ({ ...f, weather: Math.max(score, 0).toFixed(1) }));
-    } catch {
-      setForm((f: any) => ({ ...f, weather: 'N/A' }));
-    }
+  const updatePlayer = (id: number, field: keyof Player, value: any) => {
+    const updated = players.map((p) =>
+      p.id === id ? { ...p, [field]: value } : p
+    );
+    setPlayers(updated);
+    localStorage.setItem(`players-week-${week}`, JSON.stringify(updated));
   };
 
-  const fetchImplied = async (team: string) => {
-    try {
-      const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
-      const data = await res.json();
-      const game = data.events.find((g: any) =>
-        g.competitions[0].competitors.some((c: any) => c.team.abbreviation === team.toUpperCase())
-      );
-      if (!game) throw new Error('No game');
-      const odds = game.competitions[0].odds?.[0];
-      const total = Number(odds.overUnder);
-      const fav = odds.details?.includes(team.toUpperCase());
-      const implied = fav ? total * 0.55 : total * 0.45;
-      setForm((f: any) => ({ ...f, implied_total: implied.toFixed(1) }));
-    } catch {
-      setForm((f: any) => ({ ...f, implied_total: '' }));
-    }
+  const updateWeatherAll = async () => {
+    const updated = await Promise.all(
+      players.map(async (p) => {
+        if (!p.team) return p;
+        try {
+          const res = await fetch(
+            `https://gameday.weather.api/${p.team}?week=${week}`
+          );
+          const data = await res.json();
+          return { ...p, weather: data.summary || "Clear" };
+        } catch {
+          return { ...p, weather: "N/A" };
+        }
+      })
+    );
+    setPlayers(updated);
+  };
+
+  const calculateWaiverScore = (p: Player): number => {
+    const recentGames = p.games.slice(-3);
+    const avgPoints =
+      recentGames.reduce((sum, g) => sum + g.points, 0) /
+      (recentGames.length || 1);
+    let score = avgPoints;
+
+    if (p.impliedTotal) score += p.impliedTotal * 0.2;
+    if (p.defRank) score += (32 - p.defRank) * 0.3;
+    if (p.weather && p.weather.toLowerCase().includes("rain")) score -= 1.5;
+
+    return Math.round(score * 10) / 10;
   };
 
   useEffect(() => {
-    if (form.home_team) {
-      fetchWeather(form.home_team);
-      fetchImplied(form.home_team);
-    }
-  }, [form.home_team]);
+    const updated = players.map((p) => ({
+      ...p,
+      waiverScore: calculateWaiverScore(p),
+    }));
+    setPlayers(updated);
+  }, [players.length, mode]);
 
-  /** --- Local save/load --- **/
-  useEffect(() => {
-    const saved = localStorage.getItem(`waivers_week_${week}`);
-    if (saved) setPlayers(JSON.parse(saved));
-  }, [week]);
-  useEffect(() => {
-    localStorage.setItem(`waivers_week_${week}`, JSON.stringify(players));
-  }, [players, week]);
+  const top3 = [...players].sort((a, b) => (b.waiverScore ?? 0) - (a.waiverScore ?? 0)).slice(0, 3);
 
-  /** --- Scoring --- **/
-  const s = (v: any) => Number(v) || 0;
-  const calcScore = (type: 'WEEK' | 'ROS') => {
-    const w = s(form.weather);
-    const it = s(form.implied_total);
-    const st = form.stats;
-    let base = 0;
-    const shortWeight = type === 'WEEK' ? 0.7 : 0.3;
-    // simple aggregate example using prior predictive metrics
-    if (form.position.match(/WR|TE/)) {
-      base =
-        (s(st.routes3) * 0.05 +
-          s(st.targets3) * 0.3 +
-          s(st.receptions3) * 0.5 +
-          s(st.yards3) * 0.1 +
-          s(st.td3) * 6 +
-          s(st.tprr3) * 0.4) *
-          shortWeight +
-        (s(st.routesS) * 0.05 +
-          s(st.targetsS) * 0.3 +
-          s(st.receptionsS) * 0.5 +
-          s(st.yardsS) * 0.1 +
-          s(st.tdS) * 6 +
-          s(st.tprrS) * 0.4) *
-          (1 - shortWeight);
-    }
-    if (form.position === 'RB') {
-      base =
-        (s(st.snap3) * 0.1 +
-          s(st.rushAtt3) * 0.2 +
-          s(st.targets3) * 0.3 +
-          s(st.receptions3) * 0.5 +
-          s(st.tprr3) * 0.3 +
-          s(st.td3) * 6) *
-          shortWeight +
-        (s(st.snapS) * 0.1 +
-          s(st.rushAttS) * 0.2 +
-          s(st.targetsS) * 0.3 +
-          s(st.receptionsS) * 0.5 +
-          s(st.tprrS) * 0.3 +
-          s(st.tdS) * 6) *
-          (1 - shortWeight);
-    }
-    if (form.position === 'QB') {
-      base =
-        (s(st.passYds3) * 0.04 + s(st.passTD3) * 4 + s(st.rushYds3) * 0.1 + s(st.rushTD3) * 6 - s(st.turnovers3) * 2) *
-          shortWeight +
-        (s(st.passYdsS) * 0.04 + s(st.passTDS) * 4 + s(st.rushYdsS) * 0.1 + s(st.rushTDS) * 6 - s(st.turnoversS) * 2) *
-          (1 - shortWeight);
-    }
-    return (base + w * 0.4 + it * 0.3).toFixed(1);
-  };
-
-  const handleSubmit = (e: any) => {
-    e.preventDefault();
-    const weekScore = calcScore('WEEK');
-    const rosScore = calcScore('ROS');
-    const newPlayer = { ...form, waiver_score_week: weekScore, waiver_score_ros: rosScore, id: Date.now(), week };
-    setPlayers((prev) => [...prev, newPlayer]);
-    setForm({
-      player_name: '',
-      position: '',
-      team: '',
-      home_team: '',
-      weather: '',
-      implied_total: '',
-      waiver_score_week: '',
-      waiver_score_ros: '',
-      stats: {},
-    });
-  };
-
-  /** --- CSV export --- **/
   const exportCSV = () => {
-    const rows = [
-      ['Player', 'Pos', 'Team', 'Weather', 'Implied', 'Weekly', 'ROS'],
-      ...players.map((p) => [
-        p.player_name,
-        p.position,
-        p.team,
-        p.weather,
-        p.implied_total,
-        p.waiver_score_week,
-        p.waiver_score_ros,
-      ]),
-    ];
-    const csv = rows.map((r) => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `waivers_week${week}.csv`;
-    link.click();
+    const header = Object.keys(players[0] || {}).join(",");
+    const rows = players.map((p) =>
+      Object.values(p)
+        .map((v) => JSON.stringify(v))
+        .join(",")
+    );
+    const blob = new Blob([header + "\n" + rows.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    saveAs(blob, `week${week}_waiver_export.csv`);
   };
 
-  const colorByPos = (pos: string) =>
-    pos === 'QB'
-      ? 'bg-blue-900/30'
-      : pos === 'RB'
-      ? 'bg-red-900/30'
-      : pos === 'WR'
-      ? 'bg-yellow-900/30'
-      : pos === 'TE'
-      ? 'bg-purple-900/30'
-      : pos === 'DEF'
-      ? 'bg-gray-800/60'
-      : pos === 'K'
-      ? 'bg-teal-900/30'
-      : '';
-
-  const sortedPlayers = [...players].sort((a, b) =>
-    sortMode === 'WEEK'
-      ? b.waiver_score_week - a.waiver_score_week
-      : b.waiver_score_ros - a.waiver_score_ros
-  );
-
-  /** --- render minimal fields for demo --- **/
-  const renderStats = () => (
-    <>
-      <input
-        className="p-2 rounded text-black"
-        placeholder="routes3"
-        onChange={(e) =>
-          setForm({ ...form, stats: { ...form.stats, routes3: Number(e.target.value) } })
-        }
-      />
-      <input
-        className="p-2 rounded text-black"
-        placeholder="targets3"
-        onChange={(e) =>
-          setForm({ ...form, stats: { ...form.stats, targets3: Number(e.target.value) } })
-        }
-      />
-      <input
-        className="p-2 rounded text-black"
-        placeholder="td3"
-        onChange={(e) =>
-          setForm({ ...form, stats: { ...form.stats, td3: Number(e.target.value) } })
-        }
-      />
-    </>
-  );
+  const importCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const [headerLine, ...rows] = text.split("\n");
+      const headers = headerLine.split(",");
+      const imported = rows
+        .filter(Boolean)
+        .map((r) => {
+          const values = r.split(",");
+          return headers.reduce(
+            (obj, key, i) => ({ ...obj, [key]: JSON.parse(values[i] || "null") }),
+            {}
+          ) as Player;
+        });
+      setPlayers(imported);
+    };
+    reader.readAsText(file);
+  };
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
-      <h1 className="text-3xl font-bold text-center mb-6">
-        🏈 Fantasy Waiver Predictor — Week {week}
-      </h1>
-
-      <div className="flex justify-center gap-3 mb-6">
-        <select
-          className="p-2 rounded text-black"
-          value={week}
-          onChange={(e) => setWeek(Number(e.target.value))}
-        >
-          {Array.from({ length: 18 }, (_, i) => i + 1).map((wk) => (
-            <option key={wk} value={wk}>
-              Week {wk}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="bg-indigo-600 px-3 py-2 rounded hover:bg-indigo-700"
-          onClick={() => setSortMode(sortMode === 'WEEK' ? 'ROS' : 'WEEK')}
-        >
-          Sort by {sortMode === 'WEEK' ? 'ROS' : 'Weekly'}
-        </button>
-        <button
-          type="button"
-          className="bg-green-600 px-3 py-2 rounded hover:bg-green-700"
-          onClick={exportCSV}
-        >
-          Download CSV
-        </button>
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col gap-4 max-w-4xl mx-auto mb-8"
-      >
-        <div className="flex flex-wrap gap-3 justify-center">
+    <main className="p-6 bg-gray-950 min-h-screen text-gray-100">
+      <h1 className="text-3xl font-bold mb-4">Fantasy Waiver Tool</h1>
+      <div className="flex flex-wrap gap-4 mb-4">
+        <div>
+          <label>Week: </label>
           <input
-            className="p-2 rounded text-black"
-            placeholder="Player Name"
-            value={form.player_name}
-            onChange={(e) => setForm({ ...form, player_name: e.target.value })}
-          />
-          <input
-            className="p-2 rounded text-black"
-            placeholder="Position"
-            value={form.position}
-            onChange={(e) => setForm({ ...form, position: e.target.value })}
-          />
-          <input
-            className="p-2 rounded text-black"
-            placeholder="Team"
-            value={form.team}
-            onChange={(e) => setForm({ ...form, team: e.target.value })}
-          />
-          <input
-            className="p-2 rounded text-black"
-            placeholder="Home Team"
-            value={form.home_team}
-            onChange={(e) => setForm({ ...form, home_team: e.target.value })}
+            type="number"
+            value={week}
+            onChange={(e) => setWeek(Number(e.target.value))}
+            className="bg-gray-800 p-1 rounded"
           />
         </div>
-
-        <div className="flex flex-wrap gap-3 justify-center">{renderStats()}</div>
-
         <button
-          type="submit"
-          className="bg-blue-600 px-4 py-2 rounded hover:bg-blue-700 transition self-center mt-4"
+          onClick={() => setMode(mode === "WEEK" ? "ROS" : "WEEK")}
+          className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded"
         >
-          Add Player
+          Mode: {mode}
         </button>
-      </form>
+        <button onClick={addPlayer} className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded">
+          + Add Player
+        </button>
+        <button onClick={updateWeatherAll} className="bg-cyan-600 hover:bg-cyan-700 px-3 py-1 rounded">
+          Refresh Weather
+        </button>
+        <button onClick={exportCSV} className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded">
+          Export CSV
+        </button>
+        <input type="file" accept=".csv" onChange={importCSV} className="text-sm" />
+      </div>
 
-      {sortedPlayers.length ? (
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-gray-700 text-gray-300">
-              <th className="p-3">#</th>
-              <th className="p-3">Player</th>
-              <th className="p-3">Pos</th>
-              <th className="p-3">Team</th>
-              <th className="p-3 text-blue-400">Weekly</th>
-              <th className="p-3 text-green-400">ROS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedPlayers.map((p, i) => (
-              <tr
-                key={p.id}
-                className={`border-b border-gray-800 hover:bg-gray-800 transition ${colorByPos(
-                  p.position
-                )}`}
-              >
-                <td className="p-3">{i + 1}</td>
-                <td className="p-3 font-semibold">{p.player_name}</td>
-                <td className="p-3">{p.position}</td>
-                <td className="p-3">{p.team}</td>
-                <td className="p-3 font-semibold text-blue-400">{p.waiver_score_week}</td>
-                <td className="p-3 font-semibold text-green-400">{p.waiver_score_ros}</td>
+      <table className="w-full text-left text-sm border border-gray-700 rounded-lg overflow-hidden">
+        <thead className="bg-gray-800 text-gray-200">
+          <tr>
+            <th className="p-2">Name</th>
+            <th>Pos</th>
+            <th>Team</th>
+            <th>Opp</th>
+            <th>Weather</th>
+            <th>Impl Tot</th>
+            <th>DEF Rank</th>
+            <th>3-Game Avg</th>
+            <th>Waiver Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((p) => {
+            const isTop = top3.some((t) => t.id === p.id);
+            const color = isTop
+              ? top3[0].id === p.id
+                ? "bg-green-800"
+                : "bg-yellow-800"
+              : "bg-gray-900";
+            return (
+              <tr key={p.id} className={`${color} border-b border-gray-800`}>
+                <td>
+                  <input
+                    value={p.name}
+                    onChange={(e) => updatePlayer(p.id, "name", e.target.value)}
+                    className="bg-transparent outline-none w-full"
+                  />
+                </td>
+                <td>
+                  <input
+                    value={p.position}
+                    onChange={(e) => updatePlayer(p.id, "position", e.target.value)}
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>
+                  <input
+                    value={p.team}
+                    onChange={(e) => updatePlayer(p.id, "team", e.target.value)}
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>
+                  <input
+                    value={p.opponent}
+                    onChange={(e) => updatePlayer(p.id, "opponent", e.target.value)}
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>{p.weather || "-"}</td>
+                <td>
+                  <input
+                    type="number"
+                    value={p.impliedTotal || ""}
+                    onChange={(e) =>
+                      updatePlayer(p.id, "impliedTotal", Number(e.target.value))
+                    }
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    value={p.defRank || ""}
+                    onChange={(e) =>
+                      updatePlayer(p.id, "defRank", Number(e.target.value))
+                    }
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    value={
+                      p.games.length
+                        ? (
+                            p.games.reduce((sum, g) => sum + g.points, 0) /
+                            p.games.length
+                          ).toFixed(1)
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const newGames = [
+                        ...(p.games || []),
+                        { week, points: val },
+                      ];
+                      updatePlayer(p.id, "games", newGames);
+                    }}
+                    className="bg-transparent outline-none w-16"
+                  />
+                </td>
+                <td>{p.waiverScore ?? "-"}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="text-center text-gray-400">No players saved for Week {week}.</p>
-      )}
+            );
+          })}
+        </tbody>
+      </table>
     </main>
   );
 }
