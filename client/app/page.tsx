@@ -13,19 +13,35 @@ type Player = {
   defRank?: number;
   games: { week: number; points: number }[];
   waiverScore?: number;
+  suggestedBid?: number;
 };
 
 export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [week, setWeek] = useState<number>(11);
   const [mode, setMode] = useState<"WEEK" | "ROS">("WEEK");
+  const [faabBudget, setFaabBudget] = useState<number>(100);
+  const [defRanks, setDefRanks] = useState<Record<string, number>>({});
 
-  // ✅ Auto weather refresh every Tuesday 9am
+  // ✅ Load defensive ranks each Tuesday 9am or when app starts
   useEffect(() => {
+    const loadDefRanks = async () => {
+      try {
+        const res = await fetch("https://api.fantasylife.com/v1/nfl/defense-rankings");
+        const data = await res.json();
+        const ranks: Record<string, number> = {};
+        data?.rankings?.forEach((team: any) => {
+          ranks[team.teamAbbr.toUpperCase()] = team.rank;
+        });
+        setDefRanks(ranks);
+      } catch (err) {
+        console.error("DEF rank fetch failed", err);
+      }
+    };
+    loadDefRanks();
+
     const now = new Date();
-    if (now.getDay() === 2 && now.getHours() >= 9) {
-      updateWeatherAll();
-    }
+    if (now.getDay() === 2 && now.getHours() >= 9) updateWeatherAll();
   }, []);
 
   const addPlayer = () => {
@@ -82,15 +98,31 @@ export default function Home() {
     return Math.round(score * 10) / 10;
   };
 
-  useEffect(() => {
-    const updated = players.map((p) => ({
-      ...p,
-      waiverScore: calculateWaiverScore(p),
-    }));
-    setPlayers(updated);
-  }, [players.length, mode]);
+  const calculateSuggestedBid = (score: number): number => {
+    const percent = Math.min(100, Math.max(0, (score / 25) * 100));
+    const rawBid = (percent / 100) * faabBudget;
+    return Math.round(rawBid);
+  };
 
-  const top3 = [...players].sort((a, b) => (b.waiverScore ?? 0) - (a.waiverScore ?? 0)).slice(0, 3);
+  useEffect(() => {
+    const updated = players.map((p) => {
+      // auto-fill DEF rank if missing
+      let autoRank = p.defRank;
+      if (!autoRank && p.opponent && defRanks[p.opponent.toUpperCase()]) {
+        autoRank = defRanks[p.opponent.toUpperCase()];
+      }
+
+      const waiverScore = calculateWaiverScore({ ...p, defRank: autoRank });
+      const suggestedBid = calculateSuggestedBid(waiverScore);
+
+      return { ...p, defRank: autoRank, waiverScore, suggestedBid };
+    });
+    setPlayers(updated);
+  }, [players.length, mode, faabBudget, defRanks]);
+
+  const top3 = [...players]
+    .sort((a, b) => (b.waiverScore ?? 0) - (a.waiverScore ?? 0))
+    .slice(0, 3);
 
   const exportCSV = () => {
     const header = Object.keys(players[0] || {}).join(",");
@@ -130,14 +162,24 @@ export default function Home() {
   return (
     <main className="p-6 bg-gray-950 min-h-screen text-gray-100">
       <h1 className="text-3xl font-bold mb-4">Fantasy Waiver Tool</h1>
-      <div className="flex flex-wrap gap-4 mb-4">
+
+      <div className="flex flex-wrap gap-4 mb-4 items-center">
         <div>
           <label>Week: </label>
           <input
             type="number"
             value={week}
             onChange={(e) => setWeek(Number(e.target.value))}
-            className="bg-gray-800 p-1 rounded"
+            className="bg-gray-800 p-1 rounded w-20"
+          />
+        </div>
+        <div>
+          <label>FAAB Budget: </label>
+          <input
+            type="number"
+            value={faabBudget}
+            onChange={(e) => setFaabBudget(Number(e.target.value))}
+            className="bg-gray-800 p-1 rounded w-24"
           />
         </div>
         <button
@@ -146,16 +188,30 @@ export default function Home() {
         >
           Mode: {mode}
         </button>
-        <button onClick={addPlayer} className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded">
+        <button
+          onClick={addPlayer}
+          className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded"
+        >
           + Add Player
         </button>
-        <button onClick={updateWeatherAll} className="bg-cyan-600 hover:bg-cyan-700 px-3 py-1 rounded">
+        <button
+          onClick={updateWeatherAll}
+          className="bg-cyan-600 hover:bg-cyan-700 px-3 py-1 rounded"
+        >
           Refresh Weather
         </button>
-        <button onClick={exportCSV} className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded">
+        <button
+          onClick={exportCSV}
+          className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded"
+        >
           Export CSV
         </button>
-        <input type="file" accept=".csv" onChange={importCSV} className="text-sm" />
+        <input
+          type="file"
+          accept=".csv"
+          onChange={importCSV}
+          className="text-sm"
+        />
       </div>
 
       <table className="w-full text-left text-sm border border-gray-700 rounded-lg overflow-hidden">
@@ -169,7 +225,8 @@ export default function Home() {
             <th>Impl Tot</th>
             <th>DEF Rank</th>
             <th>3-Game Avg</th>
-            <th>Waiver Score</th>
+            <th>Score</th>
+            <th>💰Bid ($)</th>
           </tr>
         </thead>
         <tbody>
@@ -192,7 +249,9 @@ export default function Home() {
                 <td>
                   <input
                     value={p.position}
-                    onChange={(e) => updatePlayer(p.id, "position", e.target.value)}
+                    onChange={(e) =>
+                      updatePlayer(p.id, "position", e.target.value)
+                    }
                     className="bg-transparent outline-none w-16"
                   />
                 </td>
@@ -206,7 +265,9 @@ export default function Home() {
                 <td>
                   <input
                     value={p.opponent}
-                    onChange={(e) => updatePlayer(p.id, "opponent", e.target.value)}
+                    onChange={(e) =>
+                      updatePlayer(p.id, "opponent", e.target.value)
+                    }
                     className="bg-transparent outline-none w-16"
                   />
                 </td>
@@ -221,16 +282,7 @@ export default function Home() {
                     className="bg-transparent outline-none w-16"
                   />
                 </td>
-                <td>
-                  <input
-                    type="number"
-                    value={p.defRank || ""}
-                    onChange={(e) =>
-                      updatePlayer(p.id, "defRank", Number(e.target.value))
-                    }
-                    className="bg-transparent outline-none w-16"
-                  />
-                </td>
+                <td>{p.defRank || "-"}</td>
                 <td>
                   <input
                     type="number"
@@ -244,16 +296,14 @@ export default function Home() {
                     }
                     onChange={(e) => {
                       const val = Number(e.target.value);
-                      const newGames = [
-                        ...(p.games || []),
-                        { week, points: val },
-                      ];
+                      const newGames = [...(p.games || []), { week, points: val }];
                       updatePlayer(p.id, "games", newGames);
                     }}
                     className="bg-transparent outline-none w-16"
                   />
                 </td>
                 <td>{p.waiverScore ?? "-"}</td>
+                <td>${p.suggestedBid ?? "-"}</td>
               </tr>
             );
           })}
