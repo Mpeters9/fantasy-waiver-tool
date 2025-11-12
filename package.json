@@ -1,14 +1,22 @@
 {
-  "name": "fantasy-waiver-tool",
+  "name": "fantasy-waiver-client",
   "version": "1.0.0",
-  "description": "Fantasy Football Waiver Decision Tool - Full Stack",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "dev": "npm-run-all --parallel server client",
-    "server": "cd server && node index.js",
-    "client": "cd client && npx next dev"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "file-saver": "^2.0.5",
+    "next": "14.2.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "npm-run-all": "^4.1.5"
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2"
   }
 }
