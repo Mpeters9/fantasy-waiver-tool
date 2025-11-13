@@ -11,6 +11,33 @@ A lightweight stack (Next.js client + Express proxy) for ranking waiver-wire tar
 - Node.js 18+
 - npm 10+
 
+## Opening the project in VS Code
+1. **Clone or update the repo**
+   ```bash
+   git clone https://github.com/Mpeters9/fantasy-waiver-tool.git
+   cd fantasy-waiver-tool
+   ```
+   If you already have a local copy, sync it before launching VS Code:
+   ```bash
+   git pull origin main
+   ```
+2. **Launch VS Code from the project root**
+   ```bash
+   code .
+   ```
+   VS Code will detect both the `client` and `server` folders as workspaces. Accept any prompts to install recommended extensi
+   ons.
+3. **Handling "local changes would be overwritten" errors**
+   - Either **commit** your edits (`git add -A && git commit -m "Your message"`), or
+   - **Stash** them temporarily:
+     ```bash
+     git stash push --include-untracked
+     git pull origin main
+     git stash pop   # re-apply your changes after updating
+     ```
+   This mirrors the guidance surfaced by the VS Code Git log you shared and lets you safely pull the remote updates before co
+   ntinuing work.
+
 ## Running the stack locally
 1. **Start the API proxy**
    ```bash
