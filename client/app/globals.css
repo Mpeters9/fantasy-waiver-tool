@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #1f3c88 0%, #0b1221 55%, #05070c 100%);
+}
+
+.glass-panel {
+  @apply bg-white/5 backdrop-blur border border-white/10 rounded-2xl shadow-xl;
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+}
