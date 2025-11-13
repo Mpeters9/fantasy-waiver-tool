@@ -1,15 +1,18 @@
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-export const metadata = {
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
   title: "Fantasy Waiver Tool",
-  description: "Predictive player stat modeling with weather context",
+  description: "Track and rank waiver-wire targets with weather, Vegas totals, and DEF matchups"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-gradient-to-br from-gray-900 via-gray-800 to-black text-gray-100 min-h-screen font-sans antialiased">
-        <div className="max-w-6xl mx-auto p-6">{children}</div>
-      </body>
+      <body className={`${inter.className} text-white bg-night-900`}>{children}</body>
     </html>
   );
 }
