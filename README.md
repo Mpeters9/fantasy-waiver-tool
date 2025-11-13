@@ -38,6 +38,36 @@ A lightweight stack (Next.js client + Express proxy) for ranking waiver-wire tar
    This mirrors the guidance surfaced by the VS Code Git log you shared and lets you safely pull the remote updates before co
    ntinuing work.
 
+### If `git pull` still refuses to run
+Git will tell you exactly which files would be overwritten. When you see messages that name `client/app/layout.tsx`, `client/app/page.tsx`, `client/tailwind.config.js`, or an untracked `client/app/globals.css`, follow these steps:
+
+1. **Inspect what changed locally**
+   ```bash
+   git status -sb
+   git diff client/app/layout.tsx         # repeat for any other file in the warning
+   ```
+2. **Keep the edits** – stage and commit them before pulling:
+   ```bash
+   git add client/app/layout.tsx client/app/page.tsx client/tailwind.config.js client/app/globals.css
+   git commit -m "WIP local tweaks"
+   git pull origin main
+   ```
+   You can amend/squash that temporary commit later.
+3. **Discard the edits** – reset tracked files and delete untracked ones:
+   ```bash
+   git checkout -- client/app/layout.tsx client/app/page.tsx client/tailwind.config.js
+   rm client/app/globals.css
+   git pull origin main
+   ```
+   Removing the untracked file is what clears the "would be overwritten" warning.
+4. **Clean everything in one shot** – only if you truly want a pristine working tree:
+   ```bash
+   git reset --hard HEAD
+   git clean -fd      # removes untracked files/folders such as client/app/globals.css
+   git pull origin main
+   ```
+   This recreates the exact state of your last commit before fetching the latest updates.
+
 ## Running the stack locally
 1. **Start the API proxy**
    ```bash
