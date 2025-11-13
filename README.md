@@ -68,6 +68,23 @@ Git will tell you exactly which files would be overwritten. When you see message
    ```
    This recreates the exact state of your last commit before fetching the latest updates.
 
+### Automated repair helper
+If you just want the repo to "work" again (aborting merges, backing up your work, cleaning the tree, and pulling `origin/main`)
+run:
+
+```bash
+npm run git:repair
+```
+
+The script performs these steps safely on macOS/Linux/Windows:
+
+1. Aborts any unfinished merge (`git merge --abort`).
+2. Stashes all tracked + untracked edits under a timestamped label (so you can `git stash pop` afterward).
+3. Hard-resets tracked files and removes untracked clutter.
+4. Fetches and pulls the latest `origin/main`.
+
+If you want to reapply the stashed work, run `git stash list` to find the `pull-repair-*` entry and then `git stash pop`.
+
 ## Running the stack locally
 1. **Start the API proxy**
    ```bash
