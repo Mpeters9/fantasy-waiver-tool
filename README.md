@@ -86,6 +86,12 @@ The script performs these steps safely on macOS/Linux/Windows:
 If you want to reapply the stashed work, run `git stash list` to find the `pull-repair-*` entry and then `git stash pop`.
 
 ## Running the stack locally
+0. **Start everything from the repo root (recommended)**
+   ```bash
+   npm run dev
+   ```
+   This launches the Express proxy (`server/start`) and the Next.js client (`client/dev`) in parallel, so one command gets the full stack running at `http://localhost:3000` (client) and `http://localhost:5000` (proxy).
+
 1. **Start the API proxy**
    ```bash
    cd server
@@ -106,9 +112,18 @@ If you want to reapply the stashed work, run `git stash list` to find the `pull-
 ## Useful endpoints
 | Route | Description |
 | --- | --- |
-| `GET /api/defense-rankings` | Cached FantasyLife defensive matchup data |
+| `GET /api/defense-rankings` | Cached defensive matchup data (from `server/data/defense-rankings.json` or your configured source) |
 | `GET /api/vegas-implied/:team` | Cached ESPN scoreboard scraper that returns the implied total for the requested team |
 | `GET /api/test` | Simple health check |
+
+### Updating defense rankings
+- The client reads `server/data/defense-rankings.json` on boot. This file is checked into the repo so you always have a working baseline even if no third-party API is available.
+- The server **only** refreshes that cache if you provide a data source via the `DEFENSE_RANKINGS_SOURCE` environment variable. The value can be:
+  1. An HTTPS endpoint that returns JSON or CSV with columns such as `teamAbbr`, `overall`, `QB`, `RB`, `WR`, `TE`.
+  2. A local file path (relative to the repo) or a `file:///` URL that points at a CSV/JSON export you maintain (for example, a Google Sheet published as CSV).
+- To manually rebuild the cache, run `npm run defense:update -- <url-or-path>`. The helper normalizes FantasyLife-style JSON as well as simple CSV headers and writes the result back to `server/data/defense-rankings.json`.
+- If your CSV/JSON doesn’t include an `overall` column, the importer automatically computes one using weighted positional ranks (`QB=0.20`, `RB=0.40`, `WR=0.30`, `TE=0.10`). Override those weights with `DEFENSE_WEIGHT_QB`, `DEFENSE_WEIGHT_RB`, `DEFENSE_WEIGHT_WR`, and `DEFENSE_WEIGHT_TE` (any non-negative numbers; they’re normalized to sum 1).
+- If no source is configured, the server logs a one-time warning but keeps serving the bundled rankings so the UI can still score opponents.
 
 ## Troubleshooting
 - **`next: not found` on Linux containers** – the repository currently checks in a Windows `node_modules` folder. Reinstalling dependencies inside *your own clone* (`rm -rf client/node_modules && npm install`) will regenerate Linux-friendly binaries, but be mindful this will touch a tracked tree if you are working directly in this repo.

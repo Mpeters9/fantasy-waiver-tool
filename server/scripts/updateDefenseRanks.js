@@ -1,50 +1,39 @@
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve, isAbsolute } from "path";
 import fs from "fs/promises";
 import fetch from "node-fetch";
+import { buildDefenseRanksFromRaw } from "../logic/defense-ranks.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const OUTPUT_PATH = join(__dirname, "..", "data", "defense-rankings.json");
-const API_URL =
-  process.env.FANTASY_LIFE_DEFENSE_API ||
-  "https://api.fantasylife.com/v1/nfl/defense-rankings";
+const SOURCE_ARG = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
+const SOURCE = SOURCE_ARG || process.env.DEFENSE_RANKINGS_SOURCE || "";
 
 async function updateDefenseRanks() {
-  console.log("Fetching defense rankings from:", API_URL);
-  const res = await fetch(API_URL);
-  if (!res.ok) {
-    throw new Error(`FantasyLife request failed with status ${res.status}`);
+  if (!SOURCE) {
+    throw new Error(
+      "No defense ranking source provided.\n" +
+        "Pass a URL or file path as an argument, or set DEFENSE_RANKINGS_SOURCE."
+    );
+  }
+  console.log("Fetching defense rankings from:", SOURCE);
+  let raw;
+  if (/^https?:\/\//i.test(SOURCE)) {
+    const res = await fetch(SOURCE);
+    if (!res.ok) {
+      throw new Error(`Defense source request failed with status ${res.status}`);
+    }
+    raw = await res.text();
+  } else {
+    const inputPath = isAbsolute(SOURCE) ? SOURCE : resolve(process.cwd(), SOURCE);
+    raw = await fs.readFile(inputPath, "utf8");
   }
 
-  const json = await res.json();
-
-  const getRank = (item, keys, fallback) => {
-    for (const key of keys) {
-      const value = item?.[key];
-      if (value === 0 || value === "0") return 0;
-      const num = Number(value);
-      if (Number.isFinite(num)) return num;
-    }
-    return fallback;
-  };
-
-  const ranks = (json?.data || json || [])
-    .map((item) => {
-      const teamAbbr = item.teamAbbr || item.team || item.team_abbr;
-      const overall = getRank(item, ["rank", "overallRank", "overall"], 16);
-      const qb = getRank(item, ["qbRank", "rankQB", "qb"], overall);
-      const rb = getRank(item, ["rbRank", "rankRB", "rb"], overall);
-      const wr = getRank(item, ["wrRank", "rankWR", "wr"], overall);
-      const te = getRank(item, ["teRank", "rankTE", "te"], overall);
-      return { teamAbbr, overall, QB: qb, RB: rb, WR: wr, TE: te };
-    })
-    .filter((item) => item.teamAbbr)
-    .sort((a, b) => a.overall - b.overall);
-
+  const ranks = buildDefenseRanksFromRaw(raw);
   if (!ranks.length) {
-    throw new Error("FantasyLife response did not include any rankings.");
+    throw new Error("Provided source did not include any rankings.");
   }
 
   await fs.writeFile(OUTPUT_PATH, JSON.stringify(ranks, null, 2));
