@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const require = createRequire(import.meta.url);
-const stadiumLocations = require("../client/src/lib/stadiums.json");
+const stadiumLocations = require("./data/stadiums.json");
 let defenseRanks = require("./data/defense-rankings.json");
 const sampleNews = require("./data/news-sample.json");
 const defenseFilePath = join(__dirname, "data", "defense-rankings.json");
@@ -605,7 +605,10 @@ app.get("/api/news", async (req, res) => {
     res.json({ data: filtered });
   } catch (err) {
     console.warn("FantasyLife news fetch failed, using bundled notes:", err.message);
-    const fallback = sampleNews.filter((item) => (!team ? true : item.team === team)).slice(0, limit);
+    let fallback = sampleNews.filter((item) => (!team ? true : item.team === team)).slice(0, limit);
+    if (!fallback.length && team) {
+      fallback = sampleNews.slice(0, limit);
+    }
     res.json({ data: fallback });
   }
 });
